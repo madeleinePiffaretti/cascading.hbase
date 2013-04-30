@@ -10,3 +10,16 @@ target
 .project
 repo@conjars.org
 .lein-failures
+
+## Intellij + Maven ##
+.classpath
+.project
+.settings/
+.idea/
+*.iml
+*.iws
+.DS_Store
+log/
+target/
+logs/
+build/
