@@ -12,22 +12,6 @@
 
 package cascading.hbase;
 
-import java.io.IOException;
-import java.util.HashSet;
-
-import org.apache.hadoop.hbase.HConstants;
-import org.apache.hadoop.hbase.client.Put;
-import org.apache.hadoop.hbase.client.Result;
-import org.apache.hadoop.hbase.io.ImmutableBytesWritable;
-import org.apache.hadoop.hbase.util.Bytes;
-import org.apache.hadoop.io.DataOutputBuffer;
-import org.apache.hadoop.io.Writable;
-import org.apache.hadoop.mapred.JobConf;
-import org.apache.hadoop.mapred.OutputCollector;
-import org.apache.hadoop.mapred.RecordReader;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
-
 import cascading.flow.FlowProcess;
 import cascading.scheme.Scheme;
 import cascading.scheme.SinkCall;
@@ -37,6 +21,18 @@ import cascading.tuple.Fields;
 import cascading.tuple.Tuple;
 import cascading.tuple.TupleEntry;
 import cascading.util.Util;
+import org.apache.hadoop.hbase.HConstants;
+import org.apache.hadoop.hbase.client.Put;
+import org.apache.hadoop.hbase.client.Result;
+import org.apache.hadoop.hbase.util.Bytes;
+import org.apache.hadoop.mapred.JobConf;
+import org.apache.hadoop.mapred.OutputCollector;
+import org.apache.hadoop.mapred.RecordReader;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+
+import java.io.IOException;
+import java.util.HashSet;
 
 /**
  * The HBaseScheme class is a {@link Scheme} subclass. It is used in conjunction
@@ -156,7 +152,36 @@ public class HBaseScheme extends HBaseAbstractScheme {
 	public void sink(FlowProcess<JobConf> flowProcess,
 			SinkCall<Object[], OutputCollector> sinkCall) throws IOException {
 
-		TupleEntry tupleEntry = sinkCall.getOutgoingEntry();
+        TupleEntry tupleEntry = sinkCall.getOutgoingEntry();
+        OutputCollector outputCollector = sinkCall.getOutput();
+        Tuple key = tupleEntry.selectTuple( keyField );
+
+            byte[] keyBytes = Bytes.toBytes( key.getString( 0 ) );
+            Put put = new Put( keyBytes );
+
+            for( int i = 0; i < familyNames.length; i++ )
+              {
+              Fields fieldSelector = valueFields[ i ];
+              TupleEntry values = tupleEntry.selectEntry( fieldSelector );
+
+              for( int j = 0; j < values.getFields().size(); j++ )
+                {
+                Fields fields = values.getFields();
+                Tuple tuple = values.getTuple();
+
+                String value = tuple.getString( j );
+
+                byte[] family = Bytes.toBytes( familyNames[ i ] );
+                byte[] qualifier = Bytes.toBytes( (String) fields.get( j ) );
+                byte[] asBytes = value == null ? HConstants.EMPTY_BYTE_ARRAY : Bytes.toBytes( value );
+
+                put.add( family, qualifier, asBytes );
+                }
+              }
+
+            outputCollector.collect( null, put );
+
+		/*TupleEntry tupleEntry = sinkCall.getOutgoingEntry();
 
 		Put put = sinkGetPut(tupleEntry);
 
@@ -194,7 +219,7 @@ public class HBaseScheme extends HBaseAbstractScheme {
 		}
 
 		OutputCollector collector = sinkCall.getOutput();
-		collector.collect(null, put);
+		collector.collect(null, put); */
 	}
 
 	@Override
