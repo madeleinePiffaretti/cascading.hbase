@@ -10,3 +10,4 @@ target
 .project
 repo@conjars.org
 .lein-failures
+.idea/

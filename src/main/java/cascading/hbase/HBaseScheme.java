@@ -24,7 +24,9 @@ import cascading.util.Util;
 import org.apache.hadoop.hbase.HConstants;
 import org.apache.hadoop.hbase.client.Put;
 import org.apache.hadoop.hbase.client.Result;
+import org.apache.hadoop.hbase.io.ImmutableBytesWritable;
 import org.apache.hadoop.hbase.util.Bytes;
+import org.apache.hadoop.io.DataOutputBuffer;
 import org.apache.hadoop.mapred.JobConf;
 import org.apache.hadoop.mapred.OutputCollector;
 import org.apache.hadoop.mapred.RecordReader;
@@ -43,77 +45,117 @@ import java.util.HashSet;
  */
 @SuppressWarnings("serial")
 public class HBaseScheme extends HBaseAbstractScheme {
-	/** Field LOG */
-	private static final Logger LOG = LoggerFactory
-			.getLogger(HBaseScheme.class);
+    /**
+     * Field LOG
+     */
+    private static final Logger LOG = LoggerFactory
+            .getLogger(HBaseScheme.class);
 
-	/** String familyNames */
-	private String[] familyNames;
-	/** Field valueFields */
-	private Fields[] valueFields;
-	/** String columns */
-	private transient String[] columns;
-	/** Field fields */
-	private transient byte[][] fields;
+    /**
+     * String familyNames
+     */
+    private String[] familyNames;
+    /**
+     * Field valueFields
+     */
+    private Fields[] valueFields;
+    /**
+     * String columns
+     */
+    private transient String[] columns;
+    /**
+     * Field fields
+     */
+    private transient byte[][] fields;
 
-	private boolean isFullyQualified = false;
+    private boolean isFullyQualified = false;
 
-	/**
-	 * Constructor HBaseScheme creates a new HBaseScheme instance.
-	 *
-	 * @param keyFields
-	 *            of type Fields
-	 * @param familyName
-	 *            of type String
-	 * @param valueFields
-	 *            of type Fields
-	 */
-	public HBaseScheme(Fields keyFields, String familyName, Fields valueFields) {
-		this(keyFields, new String[] { familyName }, Fields.fields(valueFields));
-	}
+    /**
+     * Constructor HBaseScheme creates a new HBaseScheme instance.
+     *
+     * @param keyFields   of type Fields
+     * @param familyName  of type String
+     * @param valueFields of type Fields
+     */
+    public HBaseScheme(Fields keyFields, String familyName, Fields valueFields) {
+        this(keyFields, new String[]{familyName}, Fields.fields(valueFields));
+    }
 
-	/**
-	 * Constructor HBaseScheme creates a new HBaseScheme instance.
-	 *
-	 * @param keyFields
-	 *            of type Fields
-	 * @param familyNames
-	 *            of type String[]
-	 * @param valueFields
-	 *            of type Fields[]
-	 */
-	public HBaseScheme(Fields keyFields, String[] familyNames,
-			Fields[] valueFields) {
-		this.keyField = keyFields;
-		// The column Names only holds the family Names.
-		this.familyNames = familyNames;
-		this.valueFields = valueFields;
+    /**
+     * Constructor HBaseScheme creates a new HBaseScheme instance.
+     *
+     * @param keyFields   of type Fields
+     * @param familyNames of type String[]
+     * @param valueFields of type Fields[]
+     */
+    public HBaseScheme(Fields keyFields, String[] familyNames,
+                       Fields[] valueFields) {
+        this.keyField = keyFields;
+        // The column Names only holds the family Names.
+        this.familyNames = familyNames;
+        this.valueFields = valueFields;
 
-		setSourceSink(this.keyField, this.valueFields);
+        setSourceSink(this.keyField, this.valueFields);
 
-		validate();
-	}
+        validate();
+    }
 
-	/**
-	 * Method getFamilyNames returns the set of familyNames of this HBaseScheme
-	 * object.
-	 *
-	 * @return the familyNames (type String[]) of this HBaseScheme object.
-	 */
-	public String[] getFamilyNames() {
-		HashSet<String> familyNameSet = new HashSet<String>();
-		for (String familyName : familyNames) {
-			familyNameSet.add(familyName);
-		}
-		return familyNameSet.toArray(new String[0]);
-	}
+    /**
+     * Method getFamilyNames returns the set of familyNames of this HBaseScheme
+     * object.
+     *
+     * @return the familyNames (type String[]) of this HBaseScheme object.
+     */
+    public String[] getFamilyNames() {
+        HashSet<String> familyNameSet = new HashSet<String>();
+        for (String familyName : familyNames) {
+            familyNameSet.add(familyName);
+        }
+        return familyNameSet.toArray(new String[0]);
+    }
 
-	@Override
-	public boolean source(FlowProcess<JobConf> flowProcess,
-			SourceCall<Object[], RecordReader> sourceCall) throws IOException {
+    @Override
+    public boolean source(FlowProcess<JobConf> flowProcess,
+                          SourceCall<Object[], RecordReader> sourceCall) throws IOException {
 
-		Object key = sourceCall.getContext()[0];
-		Object value = sourceCall.getContext()[1];
+        Tuple result = new Tuple();
+
+        Object key = sourceCall.getContext()[0];
+        Object value = sourceCall.getContext()[1];
+        boolean hasNext = sourceCall.getInput().next(key, value);
+        if (!hasNext) {
+            return false;
+        }
+
+        // Skip nulls
+        if (key == null || value == null) {
+            return true;
+        }
+
+        ImmutableBytesWritable keyWritable = (ImmutableBytesWritable) key;
+        Result row = (Result) value;
+        result.add(keyWritable);
+
+        for (int i = 0; i < this.familyNames.length; i++) {
+            String familyName = this.familyNames[i];
+            byte[] familyNameBytes = Bytes.toBytes(familyName);
+            Fields fields = this.valueFields[i];
+            for (int k = 0; k < fields.size(); k++) {
+                String fieldName = (String) fields.get(k);
+                byte[] fieldNameBytes = Bytes.toBytes(fieldName);
+                byte[] cellValue = row.getValue(familyNameBytes, fieldNameBytes);
+                if (cellValue == null) {
+                    cellValue = new byte[0];
+                }
+                result.add(new ImmutableBytesWritable(cellValue));
+            }
+        }
+
+        sourceCall.getIncomingEntry().setTuple(result);
+
+        return true;
+        /*Object key = sourceCall.getContext()[0];
+        Object value = sourceCall.getContext()[1];
 		boolean hasNext = sourceCall.getInput().next(key, value);
 		if (!hasNext) {
 			return false;
@@ -137,49 +179,86 @@ public class HBaseScheme extends HBaseAbstractScheme {
 
 		sourceCall.getIncomingEntry().setTuple(result);
 
-		return true;
-	}
+		return true; */
+    }
 
-	private byte[][] getFieldsBytes() {
-		if (fields == null)
-			fields = makeBytes(this.familyNames, this.valueFields);
+    private byte[][] getFieldsBytes() {
+        if (fields == null)
+            fields = makeBytes(this.familyNames, this.valueFields);
 
-		return fields;
-	}
+        return fields;
+    }
 
-	@SuppressWarnings("unchecked")
-	@Override
-	public void sink(FlowProcess<JobConf> flowProcess,
-			SinkCall<Object[], OutputCollector> sinkCall) throws IOException {
+    @SuppressWarnings("unchecked")
+    @Override
+    public void sink(FlowProcess<JobConf> flowProcess,
+                     SinkCall<Object[], OutputCollector> sinkCall) throws IOException {
 
         TupleEntry tupleEntry = sinkCall.getOutgoingEntry();
         OutputCollector outputCollector = sinkCall.getOutput();
-        Tuple key = tupleEntry.selectTuple( keyField );
+        Tuple key = tupleEntry.selectTuple(keyField);
+        DataOutputBuffer dataOutputBuffer = new DataOutputBuffer();
 
-            byte[] keyBytes = Bytes.toBytes( key.getString( 0 ) );
-            Put put = new Put( keyBytes );
+        byte[] keyBytes = Bytes.toBytes(key.getString(0));
+        Put put = new Put(keyBytes);
 
-            for( int i = 0; i < familyNames.length; i++ )
-              {
-              Fields fieldSelector = valueFields[ i ];
-              TupleEntry values = tupleEntry.selectEntry( fieldSelector );
+        for (int i = 0; i < familyNames.length; i++) {
+            Fields fieldSelector = valueFields[i];
+            TupleEntry values = tupleEntry.selectEntry(fieldSelector);
 
-              for( int j = 0; j < values.getFields().size(); j++ )
-                {
+            for (int j = 0; j < values.getFields().size(); j++) {
+                Fields fields = values.getFields();
+
+                byte[] family = Bytes.toBytes(familyNames[i]);
+                byte[] qualifier = Bytes.toBytes((String) fields.get(j));
+                /*String value = tuple.getString(j);
+
+
+                byte[] asBytes = value == null ? HConstants.EMPTY_BYTE_ARRAY : Bytes.toBytes(value); */
+                Object object = values.getObject(j);
+                byte[] objectInBytes;
+
+                if (object instanceof Integer) {
+                    objectInBytes = Bytes.toBytes(values.getInteger(j));
+                } else if (object instanceof Long) {
+                    objectInBytes = Bytes.toBytes(values.getLong(j));
+                } else if (object instanceof Float) {
+                    objectInBytes = Bytes.toBytes(values.getFloat(j));
+                } else if (object instanceof Boolean) {
+                    objectInBytes = Bytes.toBytes(values.getBoolean(j));
+                } else {
+                    objectInBytes = Bytes.toBytes(values.getString(j));
+                }
+
+                if (null == objectInBytes) {
+                    objectInBytes = HConstants.EMPTY_BYTE_ARRAY;
+                }
+
+                put.add(family, qualifier, objectInBytes);
+            }
+        }
+
+        outputCollector.collect(null, put);
+        /*TupleEntry tupleEntry = sinkCall.getOutgoingEntry();
+        OutputCollector outputCollector = sinkCall.getOutput();
+        Tuple key = tupleEntry.selectTuple(keyField);
+        ImmutableBytesWritable keyBytes = (ImmutableBytesWritable) key.getObject(0);
+        Put put = new Put(keyBytes.get());
+
+        for (int i = 0; i < familyNames.length; i++) {
+            Fields fieldSelector = valueFields[i];
+            TupleEntry values = tupleEntry.selectEntry(fieldSelector);
+
+            for (int j = 0; j < values.getFields().size(); j++) {
                 Fields fields = values.getFields();
                 Tuple tuple = values.getTuple();
 
-                String value = tuple.getString( j );
+                ImmutableBytesWritable valueBytes = (ImmutableBytesWritable) tuple.getObject(j);
+                put.add(Bytes.toBytes(familyNames[i]), Bytes.toBytes((String) fields.get(j)), valueBytes.get());
+            }
+        }
 
-                byte[] family = Bytes.toBytes( familyNames[ i ] );
-                byte[] qualifier = Bytes.toBytes( (String) fields.get( j ) );
-                byte[] asBytes = value == null ? HConstants.EMPTY_BYTE_ARRAY : Bytes.toBytes( value );
-
-                put.add( family, qualifier, asBytes );
-                }
-              }
-
-            outputCollector.collect( null, put );
+        outputCollector.collect(null, put);  */
 
 		/*TupleEntry tupleEntry = sinkCall.getOutgoingEntry();
 
@@ -220,67 +299,67 @@ public class HBaseScheme extends HBaseAbstractScheme {
 
 		OutputCollector collector = sinkCall.getOutput();
 		collector.collect(null, put); */
-	}
+    }
 
-	@Override
-	public void sinkConfInit(FlowProcess<JobConf> flowProcess,
-			Tap<JobConf, RecordReader, OutputCollector> tap, JobConf conf) {
-		setSinkInitFields(conf);
-	}
+    @Override
+    public void sinkConfInit(FlowProcess<JobConf> flowProcess,
+                             Tap<JobConf, RecordReader, OutputCollector> tap, JobConf conf) {
+        setSinkInitFields(conf);
+    }
 
-	@Override
-	public void sourceConfInit(FlowProcess<JobConf> flowProcess,
-			Tap<JobConf, RecordReader, OutputCollector> tap, JobConf conf) {
-		// conf.setInputFormatClass(TableInputFormat.class);
-		String columns = getColumns();
-		setSourceInitFields(conf, columns);
-		LOG.debug("sourcing from columns: {}", columns);
-	}
+    @Override
+    public void sourceConfInit(FlowProcess<JobConf> flowProcess,
+                               Tap<JobConf, RecordReader, OutputCollector> tap, JobConf conf) {
+        // conf.setInputFormatClass(TableInputFormat.class);
+        String columns = getColumns();
+        setSourceInitFields(conf, columns);
+        LOG.debug("sourcing from columns: {}", columns);
+    }
 
-	private String getColumns() {
-		return Util.join(columns(this.familyNames, this.valueFields), " ");
-	}
+    private String getColumns() {
+        return Util.join(columns(this.familyNames, this.valueFields), " ");
+    }
 
-	private String[] columns(String[] familyNames, Fields[] fieldsArray) {
-		if (columns != null)
-			return columns;
+    private String[] columns(String[] familyNames, Fields[] fieldsArray) {
+        if (columns != null)
+            return columns;
 
-		int size = 0;
+        int size = 0;
 
-		for (Fields fields : fieldsArray)
-			size += fields.size();
+        for (Fields fields : fieldsArray)
+            size += fields.size();
 
-		columns = new String[size];
+        columns = new String[size];
 
-		for (int i = 0; i < fieldsArray.length; i++) {
-			Fields fields = fieldsArray[i];
+        for (int i = 0; i < fieldsArray.length; i++) {
+            Fields fields = fieldsArray[i];
 
-			for (int j = 0; j < fields.size(); j++)
-				if (isFullyQualified)
-					columns[i + j] = hbaseColumn((String) fields.get(j));
-				else
-					columns[i + j] = hbaseColumn(familyNames[i])
-							+ (String) fields.get(j);
-		}
+            for (int j = 0; j < fields.size(); j++)
+                if (isFullyQualified)
+                    columns[i + j] = hbaseColumn((String) fields.get(j));
+                else
+                    columns[i + j] = hbaseColumn(familyNames[i])
+                            + (String) fields.get(j);
+        }
 
-		return columns;
-	}
+        return columns;
+    }
 
-	private byte[][] makeBytes(String[] familyNames, Fields[] fieldsArray) {
-		String[] columns = columns(familyNames, fieldsArray);
-		byte[][] bytes = new byte[columns.length][];
+    private byte[][] makeBytes(String[] familyNames, Fields[] fieldsArray) {
+        String[] columns = columns(familyNames, fieldsArray);
+        byte[][] bytes = new byte[columns.length][];
 
-		for (int i = 0; i < columns.length; i++)
-			bytes[i] = Bytes.toBytes(columns[i]);
+        for (int i = 0; i < columns.length; i++)
+            bytes[i] = Bytes.toBytes(columns[i]);
 
-		return bytes;
-	}
+        return bytes;
+    }
 
-	private String hbaseColumn(String column) {
-		if (column.indexOf(":") < 0)
-			return column + ":";
-		return column;
+    private String hbaseColumn(String column) {
+        if (column.indexOf(":") < 0)
+            return column + ":";
+        return column;
 
-	}
+    }
 
 }
