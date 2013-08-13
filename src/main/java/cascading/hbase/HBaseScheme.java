@@ -24,7 +24,6 @@ import cascading.util.Util;
 import org.apache.hadoop.hbase.HConstants;
 import org.apache.hadoop.hbase.client.Put;
 import org.apache.hadoop.hbase.client.Result;
-import org.apache.hadoop.hbase.io.ImmutableBytesWritable;
 import org.apache.hadoop.hbase.util.Bytes;
 import org.apache.hadoop.io.DataOutputBuffer;
 import org.apache.hadoop.mapred.JobConf;
@@ -118,7 +117,7 @@ public class HBaseScheme extends HBaseAbstractScheme {
     public boolean source(FlowProcess<JobConf> flowProcess,
                           SourceCall<Object[], RecordReader> sourceCall) throws IOException {
 
-        Tuple result = new Tuple();
+        /*Tuple result = new Tuple();
 
         Object key = sourceCall.getContext()[0];
         Object value = sourceCall.getContext()[1];
@@ -153,33 +152,33 @@ public class HBaseScheme extends HBaseAbstractScheme {
 
         sourceCall.getIncomingEntry().setTuple(result);
 
-        return true;
-        /*Object key = sourceCall.getContext()[0];
+        return true;  */
+        Object key = sourceCall.getContext()[0];
         Object value = sourceCall.getContext()[1];
-		boolean hasNext = sourceCall.getInput().next(key, value);
-		if (!hasNext) {
-			return false;
-		}
+        boolean hasNext = sourceCall.getInput().next(key, value);
+        if (!hasNext) {
+            return false;
+        }
 
-		Tuple result = sourceGetTuple(key);
-		Result row = (Result) value;
+        Tuple result = sourceGetTuple(key);
+        Result row = (Result) value;
 
-		for (int i = 0; i < this.familyNames.length; i++) {
-			String familyName = this.familyNames[i];
-			byte[] familyNameBytes = Bytes.toBytes(familyName);
-			Fields fields = this.valueFields[i];
-			for (int k = 0; k < fields.size(); k++) {
-				String fieldName = (String) fields.get(k);
-				byte[] fieldNameBytes = Bytes.toBytes(fieldName);
-				byte[] cellValue = row
-						.getValue(familyNameBytes, fieldNameBytes);
-				result.add(cellValue);
-			}
-		}
+        for (int i = 0; i < this.familyNames.length; i++) {
+            String familyName = this.familyNames[i];
+            byte[] familyNameBytes = Bytes.toBytes(familyName);
+            Fields fields = this.valueFields[i];
+            for (int k = 0; k < fields.size(); k++) {
+                String fieldName = (String) fields.get(k);
+                byte[] fieldNameBytes = Bytes.toBytes(fieldName);
+                byte[] cellValue = row
+                        .getValue(familyNameBytes, fieldNameBytes);
+                result.add(cellValue);
+            }
+        }
 
-		sourceCall.getIncomingEntry().setTuple(result);
+        sourceCall.getIncomingEntry().setTuple(result);
 
-		return true; */
+        return true;
     }
 
     private byte[][] getFieldsBytes() {
